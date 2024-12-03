@@ -1,0 +1,51 @@
+/* HSVColorPickerModal.css */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .hsv-modal {
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+  }
+  
+  .color-display {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    margin: 0 auto 20px;
+  }
+  
+  .slider-container label {
+    display: block;
+    margin-bottom: 10px;
+  }
+  
+  .slider-container input[type='range'] {
+    width: 100%;
+  }
+  
+  .modal-buttons {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 20px;
+  }
+  
+  .modal-buttons button {
+    padding: 10px;
+    background-color: #2196F3;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  
