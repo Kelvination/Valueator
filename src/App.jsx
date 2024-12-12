@@ -2,10 +2,12 @@
 import { Node, Shaders } from 'gl-react';
 import { Surface } from 'gl-react-dom';
 import { useEffect, useRef, useState } from 'react';
-import { FaCheckCircle, FaCog, FaImages, FaMinusCircle, FaPlusCircle, FaSave, FaTrash } from 'react-icons/fa';
+import { FaCog, FaImages, FaMinusCircle, FaPlusCircle, FaSave } from 'react-icons/fa';
 import { IoMdColorPalette } from 'react-icons/io';
 import './App.css';
-import HSVColorPickerModal from './HSVColorPickerModal';
+import HSVColorPickerModal from './components/HSVColorPickerModal/HSVColorPickerModal';
+import RecentImagesModal from './components/RecentImagesModal/RecentImagesModal';
+import styles from './AppStyles';
 
 const shaders = Shaders.create({
   imageShader: {
@@ -94,8 +96,6 @@ function App() {
   const [showRecentImages, setShowRecentImages] = useState(false);
   const [isGrayscale, setIsGrayscale] = useState(true);
   const [showSliders, setShowSliders] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedImages, setSelectedImages] = useState([]);
   const [loadingImage, setLoadingImage] = useState(false);
   const [colorPickerVisible, setColorPickerVisible] = useState(false);
   const [currentColorLevel, setCurrentColorLevel] = useState(null);
@@ -284,26 +284,7 @@ function App() {
     setShowRecentImages(false);
   };
 
-  // Function to handle image selection in edit mode
-  const handleSelectImage = (uri) => {
-    setSelectedImages((prevSelected) => {
-      if (prevSelected.includes(uri)) {
-        return prevSelected.filter((item) => item !== uri);
-      } else {
-        return [...prevSelected, uri];
-      }
-    });
-  };
 
-  // Function to delete selected images
-  const handleDeleteSelectedImages = () => {
-    const updatedImages = recentImages.filter(
-      (uri) => !selectedImages.includes(uri)
-    );
-    setRecentImages(updatedImages);
-    setSelectedImages([]);
-    setIsEditing(false);
-  };
 
   // Function to adjust the number of levels
   const adjustLevels = (change) => {
@@ -592,195 +573,17 @@ function App() {
 
       {/* Recent Images Modal */}
       {showRecentImages && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContentLarge}>
-            {/* Modal Header */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderBottom: '1px solid black',
-                paddingBottom: 10,
-              }}
-            >
-              <h3>Recent Images</h3>
-              {!isEditing ? (
-                <button onClick={() => setIsEditing(true)} style={styles.modalButton}>
-                  Edit
-                </button>
-              ) : (
-                <button onClick={() => setIsEditing(false)} style={styles.modalButton}>
-                  Cancel
-                </button>
-              )}
-            </div>
-            {/* Image Grid */}
-            <div style={styles.imageGrid}>
-              {recentImages.map((item) => {
-                const isSelected = selectedImages.includes(item);
-                return (
-                  <div
-                    key={item}
-                    style={styles.imageGridItem}
-                  >
-                    <img
-                      src={item}
-                      alt="Recent"
-                      style={{
-                        width: '100%',
-                        height: 'auto',
-                        opacity: isSelected ? 0.7 : 1,
-                      }}
-                      onClick={() => {
-                        if (isEditing) {
-                          handleSelectImage(item);
-                        } else {
-                          selectRecentImage(item);
-                        }
-                      }}
-                    />
-                    {isEditing && isSelected && (
-                      <FaCheckCircle
-                        size={24}
-                        color="blue"
-                        style={{ position: 'absolute', top: 5, right: 5 }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {/* Modal Bottom Row */}
-            {isEditing ? (
-              <div style={styles.modalButtons}>
-                <button
-                  onClick={() => {
-                    setIsEditing(false);
-                    setSelectedImages([]);
-                  }}
-                  style={styles.modalButton}
-                >
-                  Cancel
-                </button>
-                <button onClick={handleDeleteSelectedImages} style={styles.modalButton}>
-                  <FaTrash color="red" /> Delete
-                </button>
-              </div>
-            ) : (
-              <div style={styles.modalButtons}>
-                <button onClick={() => setShowRecentImages(false)} style={styles.modalButton}>
-                  Close
-                </button>
-                <button style={styles.modalButton}>
-                  <label htmlFor="file-input" style={{ cursor: 'pointer' }}>
-                    <FaPlusCircle /> Add Image
-                  </label>
-                  <input
-                    id="file-input"
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={handleImageUpload}
-                  />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <RecentImagesModal 
+          recentImages={recentImages}
+          setRecentImages={setRecentImages}
+          selectRecentImage={selectRecentImage}
+          setShowRecentImages={setShowRecentImages}
+          handleImageUpload={handleImageUpload}
+        />
       )}
     </div>
   );
 }
 
-const styles = {
-  iconButton: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    textAlign: 'center',
-  },
-  sliderRow: {
-    display: 'flex',
-    alignItems: 'center',
-    margin: '5px 0',
-    width: '100%',
-  },
-  sliderLabel: {
-    width: 80,
-    paddingLeft: 10,
-  },
-  sliderContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    flex: 1,
-  },
-  resetButton: {
-    padding: 10,
-    backgroundColor: '#f44336',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  modalContent: {
-    width: 220,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    textAlign: 'center',
-  },
-  modalContentLarge: {
-    width: 500,
-    maxWidth: '90%',
-    maxHeight: '80%',
-    overflowY: 'auto',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-  },
-  modalButtons: {
-    display: 'flex',
-    justifyContent: 'space-around',
-    marginTop: 20,
-  },
-  modalButton: {
-    padding: 10,
-    backgroundColor: '#2196F3',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  imageGrid: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    marginTop: 10,
-    minHeight: 200,
-  },
-  imageGridItem: {
-    position: 'relative',
-    margin: 5,
-    width: 100,
-    height: 100,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'gray'
-  }
-};
 
 export default App;
