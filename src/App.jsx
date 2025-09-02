@@ -493,7 +493,15 @@ function App() {
       
       console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
       
-      // Try to save directly from the WebGL canvas using toBlob
+      // Check if canvas has any content by checking WebGL context
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (gl) {
+        console.log('WebGL context found, forcing render flush');
+        gl.finish();
+        gl.flush();
+      }
+      
+      // Try dataURL method first as it's more reliable for WebGL canvases
       try {
         canvas.toBlob((blob) => {
           if (blob && blob.size > 0) {
@@ -609,6 +617,7 @@ function App() {
               <Surface
                 width={imageDisplayWidth}
                 height={imageDisplayHeight}
+                webglContextAttributes={{ preserveDrawingBuffer: true }}
                 style={{ 
                   maxWidth: '100%',
                   width: `${imageDisplayWidth}px`,
@@ -887,6 +896,7 @@ function App() {
             <Surface
               width={imageDisplayWidth}
               height={imageDisplayHeight}
+              webglContextAttributes={{ preserveDrawingBuffer: true }}
               style={{ 
                 maxWidth: '95vw',
                 maxHeight: '95vh',
