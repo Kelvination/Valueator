@@ -446,7 +446,7 @@ function App() {
   };
 
   // Function to save the shaded image
-  const saveImage = () => {
+  const saveImage = async () => {
     console.log('Save image clicked');
     
     if (!imageUri || !loadedImage) {
@@ -454,102 +454,48 @@ function App() {
       return;
     }
     
+    if (!surfaceRef.current) {
+      alert('Surface reference not available. Please try again.');
+      return;
+    }
+    
     try {
-      // Get the WebGL canvas from the Surface ref
-      if (!surfaceRef.current) {
-        alert('Surface reference not available. Please try again.');
-        return;
-      }
-      
-      // Try different methods to get the canvas from gl-react Surface
-      let canvas = null;
-      
-      // Method 1: Check if there's a canvas property
-      if (surfaceRef.current.canvas) {
-        canvas = surfaceRef.current.canvas;
-      }
-      // Method 2: Check if there's a _canvas property  
-      else if (surfaceRef.current._canvas) {
-        canvas = surfaceRef.current._canvas;
-      }
-      // Method 3: Try to find canvas in the DOM as fallback
-      else {
-        const surfaceElement = surfaceRef.current;
-        if (surfaceElement && surfaceElement.querySelector) {
-          canvas = surfaceElement.querySelector('canvas');
-        } else {
-          // Last resort - find any canvas in the component
-          canvas = document.querySelector('canvas');
-        }
-      }
-      
-      console.log('Canvas found:', canvas);
       console.log('Surface ref:', surfaceRef.current);
       
-      if (!canvas) {
-        alert('Unable to get canvas. Make sure an image is loaded.');
-        return;
+      // Use gl-react Surface's built-in capture method
+      const blob = await surfaceRef.current.captureAsBlob('image/png');
+      
+      if (blob && blob.size > 0) {
+        const filename = `valueator-image-${Date.now()}.png`;
+        saveAs(blob, filename);
+        console.log('Image saved successfully:', filename, 'Size:', blob.size, 'bytes');
+      } else {
+        throw new Error('Captured blob is empty');
       }
       
-      console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
+    } catch (blobError) {
+      console.warn('captureAsBlob failed, trying captureAsDataURL:', blobError);
       
-      // Check if canvas has any content by checking WebGL context
-      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-      if (gl) {
-        console.log('WebGL context found, forcing render flush');
-        gl.finish();
-        gl.flush();
-      }
-      
-      // Try dataURL method first as it's more reliable for WebGL canvases
+      // Fallback to dataURL method
       try {
-        canvas.toBlob((blob) => {
-          if (blob && blob.size > 0) {
-            const filename = `valueator-image-${Date.now()}.png`;
-            saveAs(blob, filename);
-            console.log('Image saved successfully:', filename, 'Size:', blob.size, 'bytes');
-          } else {
-            console.warn('Blob is empty, trying dataURL method');
-            // Fallback to data URL method
-            const dataURL = canvas.toDataURL('image/png');
-            if (dataURL && dataURL !== 'data:,') {
-              const link = document.createElement('a');
-              link.download = `valueator-image-${Date.now()}.png`;
-              link.href = dataURL;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              console.log('Image saved via dataURL method');
-            } else {
-              alert('Unable to capture image data. The canvas may be empty or corrupted.');
-            }
-          }
-        }, 'image/png');
-      } catch (blobError) {
-        console.error('toBlob failed:', blobError);
-        // Fallback to data URL method
-        try {
-          const dataURL = canvas.toDataURL('image/png');
-          if (dataURL && dataURL !== 'data:,') {
-            const link = document.createElement('a');
-            link.download = `valueator-image-${Date.now()}.png`;
-            link.href = dataURL;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            console.log('Image saved via dataURL fallback method');
-          } else {
-            alert('Unable to capture image data. The canvas appears to be empty.');
-          }
-        } catch (dataURLError) {
-          console.error('dataURL fallback failed:', dataURLError);
-          alert('Failed to save image. Both toBlob and toDataURL methods failed.');
+        const dataURL = surfaceRef.current.captureAsDataURL('image/png');
+        
+        if (dataURL && dataURL !== 'data:,' && dataURL.length > 100) {
+          const link = document.createElement('a');
+          link.download = `valueator-image-${Date.now()}.png`;
+          link.href = dataURL;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          console.log('Image saved via dataURL fallback method');
+        } else {
+          throw new Error('Captured dataURL is empty or invalid');
         }
+        
+      } catch (dataURLError) {
+        console.error('Both capture methods failed:', { blobError, dataURLError });
+        alert('Failed to save image. Please ensure an image is loaded and try again.');
       }
-      
-    } catch (error) {
-      console.error('Error saving image:', error);
-      alert('Failed to save image: ' + error.message);
     }
   };
 
