@@ -446,104 +446,97 @@ function App() {
   };
 
   // Function to save the shaded image
-  const saveImage = async () => {
+  const saveImage = () => {
     console.log('Save image clicked');
-    console.log('surfaceRef.current:', surfaceRef.current);
     
-    if (!surfaceRef.current) {
-      alert('No image to save. Surface ref not available.');
+    if (!imageUri || !loadedImage) {
+      alert('No image to save. Please load an image first.');
       return;
     }
     
     try {
-      // Wait a bit to ensure the WebGL rendering is complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Get the WebGL canvas from the Surface ref
+      if (!surfaceRef.current) {
+        alert('Surface reference not available. Please try again.');
+        return;
+      }
       
-      // Try different methods to access the canvas
+      // Try different methods to get the canvas from gl-react Surface
       let canvas = null;
       
-      // Method 1: Direct access to canvas
+      // Method 1: Check if there's a canvas property
       if (surfaceRef.current.canvas) {
         canvas = surfaceRef.current.canvas;
-        console.log('Using direct canvas access');
       }
-      // Method 2: Query canvas within the Surface component
-      else if (surfaceRef.current.querySelector) {
-        canvas = surfaceRef.current.querySelector('canvas');
-        console.log('Using querySelector for canvas');
+      // Method 2: Check if there's a _canvas property  
+      else if (surfaceRef.current._canvas) {
+        canvas = surfaceRef.current._canvas;
       }
-      // Method 3: Find the canvas in the DOM
+      // Method 3: Try to find canvas in the DOM as fallback
       else {
-        // Look for the canvas that's a child of the Surface ref
         const surfaceElement = surfaceRef.current;
-        canvas = surfaceElement.querySelector('canvas') || 
-                 surfaceElement.firstElementChild?.querySelector('canvas') ||
-                 document.querySelector('canvas');
-        console.log('Using DOM query for canvas');
+        if (surfaceElement && surfaceElement.querySelector) {
+          canvas = surfaceElement.querySelector('canvas');
+        } else {
+          // Last resort - find any canvas in the component
+          canvas = document.querySelector('canvas');
+        }
       }
       
       console.log('Canvas found:', canvas);
-      console.log('Canvas dimensions:', canvas?.width, 'x', canvas?.height);
+      console.log('Surface ref:', surfaceRef.current);
       
       if (!canvas) {
-        alert('Unable to find canvas element.');
+        alert('Unable to get canvas. Make sure an image is loaded.');
         return;
       }
       
-      // Check if canvas has content
-      const context = canvas.getContext('2d') || canvas.getContext('webgl') || canvas.getContext('webgl2');
-      if (!context) {
-        alert('Unable to get canvas context.');
-        return;
-      }
+      console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
       
-      // For WebGL canvas, we need to read the pixels and create a 2D canvas
-      if (context instanceof WebGLRenderingContext || context instanceof WebGL2RenderingContext) {
-        console.log('WebGL canvas detected, creating 2D canvas copy');
-        
-        const width = canvas.width;
-        const height = canvas.height;
-        
-        // Create a 2D canvas to copy the WebGL content
-        const canvas2D = document.createElement('canvas');
-        canvas2D.width = width;
-        canvas2D.height = height;
-        const ctx2D = canvas2D.getContext('2d');
-        
-        // Copy the WebGL canvas to 2D canvas
-        ctx2D.drawImage(canvas, 0, 0);
-        
-        // Save from the 2D canvas
-        canvas2D.toBlob((blob) => {
-          if (blob) {
-            const filename = `valueator-image-${Date.now()}.png`;
-            saveAs(blob, filename);
-            console.log('Image saved:', filename);
-          } else {
-            console.error('Failed to create blob from 2D canvas');
-            alert('Failed to create image blob.');
-          }
-        }, 'image/png');
-      } else {
-        // Regular 2D canvas
-        console.log('2D canvas detected');
+      // Try to save directly from the WebGL canvas using toBlob
+      try {
         canvas.toBlob((blob) => {
-          if (blob) {
+          if (blob && blob.size > 0) {
             const filename = `valueator-image-${Date.now()}.png`;
             saveAs(blob, filename);
-            console.log('Image saved:', filename);
+            console.log('Image saved successfully:', filename, 'Size:', blob.size, 'bytes');
           } else {
+            console.warn('Blob is empty, trying dataURL method');
             // Fallback to data URL method
             const dataURL = canvas.toDataURL('image/png');
+            if (dataURL && dataURL !== 'data:,') {
+              const link = document.createElement('a');
+              link.download = `valueator-image-${Date.now()}.png`;
+              link.href = dataURL;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              console.log('Image saved via dataURL method');
+            } else {
+              alert('Unable to capture image data. The canvas may be empty or corrupted.');
+            }
+          }
+        }, 'image/png');
+      } catch (blobError) {
+        console.error('toBlob failed:', blobError);
+        // Fallback to data URL method
+        try {
+          const dataURL = canvas.toDataURL('image/png');
+          if (dataURL && dataURL !== 'data:,') {
             const link = document.createElement('a');
             link.download = `valueator-image-${Date.now()}.png`;
             link.href = dataURL;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            console.log('Image saved via fallback method');
+            console.log('Image saved via dataURL fallback method');
+          } else {
+            alert('Unable to capture image data. The canvas appears to be empty.');
           }
-        }, 'image/png');
+        } catch (dataURLError) {
+          console.error('dataURL fallback failed:', dataURLError);
+          alert('Failed to save image. Both toBlob and toDataURL methods failed.');
+        }
       }
       
     } catch (error) {
@@ -892,9 +885,15 @@ function App() {
         >
           <div className="fullscreen-modal-content">
             <Surface
-              width={Math.min(window.innerWidth - 40, imageWidth)}
-              height={Math.min(window.innerHeight - 40, imageHeight)}
-              style={{ maxWidth: '100vw', maxHeight: '100vh' }}
+              width={imageDisplayWidth}
+              height={imageDisplayHeight}
+              style={{ 
+                maxWidth: '95vw',
+                maxHeight: '95vh',
+                width: `${imageDisplayWidth}px`,
+                height: `${imageDisplayHeight}px`,
+                objectFit: 'contain'
+              }}
             >
               <Node
                 shader={shaders.imageShader}
