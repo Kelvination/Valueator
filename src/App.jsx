@@ -3,6 +3,7 @@ import { Node, Shaders } from 'gl-react';
 import { Surface } from 'gl-react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { FaCheckCircle, FaCog, FaImages, FaMinusCircle, FaPlusCircle, FaSave, FaTrash } from 'react-icons/fa';
+import { saveAs } from 'file-saver';
 import { IoMdColorPalette } from 'react-icons/io';
 import './App.css';
 import HSVColorPickerModal from './HSVColorPickerModal';
@@ -215,54 +216,52 @@ function App() {
     });
   }, [levels]);
 
-  // Load recent images metadata from localStorage
-  // Note: Actual images won't persist between sessions since we're using object URLs
+  // Load recent images from localStorage
   useEffect(() => {
     try {
-      // Clean up old data URL storage key if it exists
-      const oldImages = localStorage.getItem('recentImages');
-      if (oldImages) {
-        localStorage.removeItem('recentImages');
+      // Clean up old metadata-only storage key if it exists
+      const oldMetadata = localStorage.getItem('recentImagesMetadata');
+      if (oldMetadata) {
+        localStorage.removeItem('recentImagesMetadata');
       }
       
-      // Try to load metadata (won't have actual images since object URLs don't persist)
-      const metadataJson = localStorage.getItem('recentImagesMetadata');
-      if (metadataJson) {
-        const parsedMetadata = JSON.parse(metadataJson);
-        // Note: These won't have valid objectUrls, so they're just for reference
-        // Users will need to re-upload images after browser restart
-        setRecentImages([]);
-        console.log('Previous session had', parsedMetadata.length, 'images. Please re-upload to continue working.');
+      // Load recent images with data URLs
+      const imagesJson = localStorage.getItem('recentImages');
+      if (imagesJson) {
+        const parsedImages = JSON.parse(imagesJson);
+        setRecentImages(parsedImages);
+        console.log('Loaded', parsedImages.length, 'recent images from previous session.');
       }
     } catch (error) {
-      console.warn('Failed to load recent images metadata from localStorage:', error);
+      console.warn('Failed to load recent images from localStorage:', error);
       try {
-        localStorage.removeItem('recentImagesMetadata');
+        localStorage.removeItem('recentImages');
       } catch (clearError) {
-        console.warn('Failed to clear corrupted metadata from localStorage:', clearError);
+        console.warn('Failed to clear corrupted images from localStorage:', clearError);
       }
     }
   }, []);
 
-  // Save recent images metadata to localStorage whenever they change
+  // Save recent images to localStorage whenever they change
   useEffect(() => {
     try {
-      // Only save metadata (without objectUrl) to localStorage to minimize storage
-      const metadataToStore = recentImages.map(({ objectUrl, ...metadata }) => metadata);
-      localStorage.setItem('recentImagesMetadata', JSON.stringify(metadataToStore));
+      localStorage.setItem('recentImages', JSON.stringify(recentImages));
     } catch (error) {
-      console.warn('Failed to save recent images metadata to localStorage:', error);
-      // If quota still exceeded (unlikely with just metadata), limit further
+      console.warn('Failed to save recent images to localStorage:', error);
+      // If quota exceeded, try saving fewer images
       if (error.name === 'QuotaExceededError') {
         try {
-          const limitedMetadata = recentImages.slice(0, 5).map(({ objectUrl, ...metadata }) => metadata);
-          localStorage.setItem('recentImagesMetadata', JSON.stringify(limitedMetadata));
+          const limitedImages = recentImages.slice(0, 3);
+          localStorage.setItem('recentImages', JSON.stringify(limitedImages));
+          setRecentImages(limitedImages);
+          console.log('Reduced recent images to 3 due to storage quota');
         } catch (secondError) {
-          console.warn('Failed to save even limited metadata:', secondError);
+          console.warn('Failed to save even limited images:', secondError);
           try {
-            localStorage.removeItem('recentImagesMetadata');
+            localStorage.removeItem('recentImages');
+            setRecentImages([]);
           } catch (clearError) {
-            console.warn('Failed to clear metadata from localStorage:', clearError);
+            console.warn('Failed to clear images from localStorage:', clearError);
           }
         }
       }
@@ -274,46 +273,42 @@ function App() {
     if (file) {
       setLoadingImage(true);
       
-      // Create object URL instead of reading file as data URL
-      const uri = URL.createObjectURL(file);
-      setImageUri(uri);
+      // Read file as data URL for persistence
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const uri = e.target.result;
+        setImageUri(uri);
 
-      // Create a new Image object to get dimensions
-      const img = new Image();
-      img.onload = () => {
-        setImageWidth(img.width);
-        setImageHeight(img.height);
-        setLoadedImage(img);
-        setLoadingImage(false);
-      };
-      img.src = uri;
+        // Create a new Image object to get dimensions
+        const img = new Image();
+        img.onload = () => {
+          setImageWidth(img.width);
+          setImageHeight(img.height);
+          setLoadedImage(img);
+          setLoadingImage(false);
+        };
+        img.src = uri;
 
-      // Store file metadata instead of full data URL
-      const fileMetadata = {
-        id: Date.now().toString(),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        lastModified: file.lastModified,
-        objectUrl: uri
-      };
+        // Store complete image data for persistence
+        const fileMetadata = {
+          id: Date.now().toString(),
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          dataUrl: uri
+        };
 
-      // Add to recent images with metadata only (much smaller storage footprint)
-      setRecentImages((prev) => {
-        const updated = prev.filter((item) => item.name !== file.name);
-        updated.unshift(fileMetadata);
-        // Keep only metadata for 10 most recent images
-        const limitedUpdated = updated.slice(0, 10);
-        
-        // Clean up old object URLs to prevent memory leaks
-        prev.forEach(item => {
-          if (!limitedUpdated.find(newItem => newItem.id === item.id) && item.objectUrl) {
-            URL.revokeObjectURL(item.objectUrl);
-          }
+        // Add to recent images
+        setRecentImages((prev) => {
+          const updated = prev.filter((item) => item.name !== file.name);
+          updated.unshift(fileMetadata);
+          // Keep only 10 most recent images
+          return updated.slice(0, 10);
         });
-        
-        return limitedUpdated;
-      });
+      };
+      
+      reader.readAsDataURL(file);
     } else {
       alert('No image selected');
     }
@@ -354,7 +349,7 @@ function App() {
 
   const selectRecentImage = (imageMetadata) => {
     setLoadingImage(true);
-    const uri = imageMetadata.objectUrl;
+    const uri = imageMetadata.dataUrl;
     setImageUri(uri);
 
     const img = new Image();
@@ -381,12 +376,7 @@ function App() {
 
   // Function to delete selected images
   const handleDeleteSelectedImages = () => {
-    // Clean up object URLs for deleted images to prevent memory leaks
-    recentImages.forEach(imageMetadata => {
-      if (selectedImages.includes(imageMetadata.id) && imageMetadata.objectUrl) {
-        URL.revokeObjectURL(imageMetadata.objectUrl);
-      }
-    });
+    // Delete selected images
     
     const updatedImages = recentImages.filter(
       (imageMetadata) => !selectedImages.includes(imageMetadata.id)
@@ -437,23 +427,45 @@ function App() {
 
   // Function to save the shaded image
   const saveImage = () => {
+    console.log('Save image clicked');
+    console.log('surfaceRef.current:', surfaceRef.current);
+    
     if (!surfaceRef.current) {
-      alert('No image to save.');
+      alert('No image to save. Surface ref not available.');
       return;
     }
+    
     try {
       const canvas = surfaceRef.current.getGLCanvas();
-      const dataURL = canvas.toDataURL('image/png');
-
-      const link = document.createElement('a');
-      link.download = 'image.png';
-      link.href = dataURL;
-      link.click();
-
-      alert('Image saved!');
+      console.log('Canvas:', canvas);
+      
+      if (!canvas) {
+        alert('Unable to get WebGL canvas.');
+        return;
+      }
+      
+      // Convert canvas to blob and save using file-saver
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const filename = `valueator-image-${Date.now()}.png`;
+          saveAs(blob, filename);
+          console.log('Image saved:', filename);
+        } else {
+          // Fallback to data URL method
+          const dataURL = canvas.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = `valueator-image-${Date.now()}.png`;
+          link.href = dataURL;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          console.log('Image saved via fallback method');
+        }
+      }, 'image/png');
+      
     } catch (error) {
       console.error('Error saving image:', error);
-      alert('Failed to save image.');
+      alert('Failed to save image: ' + error.message);
     }
   };
 
@@ -521,7 +533,14 @@ function App() {
               <Surface
                 width={imageDisplayWidth}
                 height={imageDisplayHeight}
-                style={{ width: '100%', height: 'auto', cursor: 'pointer' }}
+                style={{ 
+                  maxWidth: '100%',
+                  width: `${imageDisplayWidth}px`,
+                  height: `${imageDisplayHeight}px`,
+                  cursor: 'pointer',
+                  display: 'block',
+                  margin: '0 auto'
+                }}
                 ref={surfaceRef}
                 onClick={handleImageClick}
               >
@@ -715,7 +734,7 @@ function App() {
                     className="image-grid-item"
                   >
                     <img
-                      src={imageMetadata.objectUrl}
+                      src={imageMetadata.dataUrl}
                       alt={imageMetadata.name || "Recent"}
                       style={{
                         opacity: isSelected ? 0.7 : 1,

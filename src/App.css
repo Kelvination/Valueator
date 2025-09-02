@@ -70,6 +70,9 @@
   border-radius: 15px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   transition: transform 0.3s ease;
+  max-width: 100%;
+  height: auto !important;
+  object-fit: contain;
 }
 
 .image-container canvas:hover {
@@ -651,6 +654,9 @@
 .image-container canvas {
   border: 2px solid rgba(0, 0, 0, 0.08);
   transition: all 0.4s ease;
+  max-width: 100%;
+  height: auto !important;
+  object-fit: contain;
 }
 
 .image-container canvas:hover {
