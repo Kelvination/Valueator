@@ -1,5 +1,39 @@
 # Changelog
 
+## 2025-09-02 - Large Image Persistence Fix
+
+### Storage System Overhaul
+- **Replaced localStorage with IndexedDB** for much larger storage capacity (50MB-1GB+ vs 5-10MB limit)
+- **Added automatic image compression** for large files to optimize storage efficiency
+- **Implemented thumbnail generation** for faster grid display performance
+- **Created fallback system** to localStorage if IndexedDB fails
+
+### Image Processing Enhancements
+- **Smart compression**: Automatically compresses images over 2MB while maintaining quality
+- **Thumbnail optimization**: 150px square thumbnails for grid views reduce memory usage
+- **Progress logging**: Console feedback for compression ratios and storage success
+- **Error handling**: Graceful degradation with user-friendly error messages
+
+### Migration System
+- **Automatic migration** from old localStorage images to new IndexedDB system
+- **Background processing** to avoid blocking user interface during migration
+- **Data preservation** ensuring no existing images are lost during upgrade
+- **Cleanup process** removes old localStorage data after successful migration
+
+### Technical Improvements
+- **Asynchronous processing** for better performance with large images
+- **Storage utilities** in separate modules for better code organization
+- **Enhanced error handling** with detailed logging and user feedback
+- **Fixed save functionality** by updating canvas access method for gl-react-dom
+
+### User Experience
+- **Large file support**: No more failed uploads for high-resolution images
+- **Faster loading**: Thumbnails improve grid performance and reduce memory usage
+- **Persistent storage**: Images now reliably persist between browser sessions
+- **Seamless upgrade**: Existing users automatically benefit from improved storage
+
+This update solves the core issue where large images wouldn't persist between page loads, transforming the app into a reliable tool for working with high-resolution artwork.
+
 ## 2025-09-01 - Artist-Focused Professional Redesign
 
 ### Complete UI Transformation

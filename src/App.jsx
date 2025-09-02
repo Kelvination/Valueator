@@ -7,6 +7,8 @@ import { saveAs } from 'file-saver';
 import { IoMdColorPalette } from 'react-icons/io';
 import './App.css';
 import HSVColorPickerModal from './HSVColorPickerModal';
+import { saveImageToDB, loadImagesFromDB, deleteImagesFromDB, saveImageToLocalStorage, loadImagesFromLocalStorage } from './imageStorage';
+import { processImageFile, formatFileSize } from './imageUtils';
 
 const shaders = Shaders.create({
   imageShader: {
@@ -129,7 +131,7 @@ function App() {
         }
       });
     };
-  }, []);
+  }, [recentImages]);
 
   const surfaceRef = useRef();
 
@@ -216,101 +218,102 @@ function App() {
     });
   }, [levels]);
 
-  // Load recent images from localStorage
+  // Load recent images from IndexedDB (with localStorage fallback)
   useEffect(() => {
-    try {
-      // Clean up old metadata-only storage key if it exists
-      const oldMetadata = localStorage.getItem('recentImagesMetadata');
-      if (oldMetadata) {
-        localStorage.removeItem('recentImagesMetadata');
-      }
-      
-      // Load recent images with data URLs
-      const imagesJson = localStorage.getItem('recentImages');
-      if (imagesJson) {
-        const parsedImages = JSON.parse(imagesJson);
-        setRecentImages(parsedImages);
-        console.log('Loaded', parsedImages.length, 'recent images from previous session.');
-      }
-    } catch (error) {
-      console.warn('Failed to load recent images from localStorage:', error);
+    const loadImages = async () => {
       try {
-        localStorage.removeItem('recentImages');
-      } catch (clearError) {
-        console.warn('Failed to clear corrupted images from localStorage:', clearError);
-      }
-    }
-  }, []);
-
-  // Save recent images to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem('recentImages', JSON.stringify(recentImages));
-    } catch (error) {
-      console.warn('Failed to save recent images to localStorage:', error);
-      // If quota exceeded, try saving fewer images
-      if (error.name === 'QuotaExceededError') {
-        try {
-          const limitedImages = recentImages.slice(0, 3);
-          localStorage.setItem('recentImages', JSON.stringify(limitedImages));
-          setRecentImages(limitedImages);
-          console.log('Reduced recent images to 3 due to storage quota');
-        } catch (secondError) {
-          console.warn('Failed to save even limited images:', secondError);
-          try {
-            localStorage.removeItem('recentImages');
-            setRecentImages([]);
-          } catch (clearError) {
-            console.warn('Failed to clear images from localStorage:', clearError);
-          }
+        // Try IndexedDB first
+        const images = await loadImagesFromDB();
+        if (images.length > 0) {
+          setRecentImages(images);
+          console.log('Loaded', images.length, 'recent images from IndexedDB');
+          return;
+        }
+        
+        // Fallback to localStorage for migration
+        const localImages = loadImagesFromLocalStorage();
+        if (localImages.length > 0) {
+          setRecentImages(localImages);
+          console.log('Loaded', localImages.length, 'images from localStorage (will migrate to IndexedDB)');
+          
+          // Migrate to IndexedDB in background
+          setTimeout(async () => {
+            try {
+              for (const image of localImages) {
+                await saveImageToDB(image);
+              }
+              console.log('Successfully migrated images to IndexedDB');
+              // Clean up localStorage after successful migration
+              localStorage.removeItem('recentImages');
+            } catch (migrationError) {
+              console.warn('Failed to migrate images to IndexedDB:', migrationError);
+            }
+          }, 1000);
+        }
+      } catch (error) {
+        console.warn('Failed to load images:', error);
+        // Final fallback to localStorage
+        const localImages = loadImagesFromLocalStorage();
+        if (localImages.length > 0) {
+          setRecentImages(localImages);
         }
       }
-    }
-  }, [recentImages]);
+    };
+    
+    loadImages();
+  }, []);
 
-  const handleImageUpload = (event) => {
+
+  const handleImageUpload = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      setLoadingImage(true);
-      
-      // Read file as data URL for persistence
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const uri = e.target.result;
-        setImageUri(uri);
-
-        // Create a new Image object to get dimensions
-        const img = new Image();
-        img.onload = () => {
-          setImageWidth(img.width);
-          setImageHeight(img.height);
-          setLoadedImage(img);
-          setLoadingImage(false);
-        };
-        img.src = uri;
-
-        // Store complete image data for persistence
-        const fileMetadata = {
-          id: Date.now().toString(),
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          lastModified: file.lastModified,
-          dataUrl: uri
-        };
-
-        // Add to recent images
-        setRecentImages((prev) => {
-          const updated = prev.filter((item) => item.name !== file.name);
-          updated.unshift(fileMetadata);
-          // Keep only 10 most recent images
-          return updated.slice(0, 10);
-        });
-      };
-      
-      reader.readAsDataURL(file);
-    } else {
+    if (!file) {
       alert('No image selected');
+      return;
+    }
+
+    setLoadingImage(true);
+    
+    try {
+      // Process image (compress if needed, create thumbnail)
+      const processedImageData = await processImageFile(file);
+      
+      // Set current image for display
+      setImageUri(processedImageData.dataUrl);
+      
+      // Create Image object to get dimensions
+      const img = new Image();
+      img.onload = () => {
+        setImageWidth(img.width);
+        setImageHeight(img.height);
+        setLoadedImage(img);
+        setLoadingImage(false);
+      };
+      img.src = processedImageData.dataUrl;
+
+      // Save to IndexedDB (with localStorage fallback)
+      try {
+        await saveImageToDB(processedImageData);
+        console.log('Image saved to IndexedDB');
+      } catch (dbError) {
+        console.warn('Failed to save to IndexedDB, falling back to localStorage:', dbError);
+        saveImageToLocalStorage(processedImageData);
+      }
+
+      // Update recent images state
+      setRecentImages((prev) => {
+        const updated = prev.filter((item) => item.name !== file.name);
+        updated.unshift(processedImageData);
+        return updated.slice(0, 10); // Keep only 10 most recent
+      });
+      
+      if (processedImageData.compressed) {
+        console.log(`Image compressed from ${formatFileSize(processedImageData.originalSize)} to ${formatFileSize(processedImageData.size)}`);
+      }
+      
+    } catch (error) {
+      console.error('Failed to process image:', error);
+      alert('Failed to process image. Please try again.');
+      setLoadingImage(false);
     }
   };
 
@@ -375,15 +378,32 @@ function App() {
   };
 
   // Function to delete selected images
-  const handleDeleteSelectedImages = () => {
-    // Delete selected images
-    
-    const updatedImages = recentImages.filter(
-      (imageMetadata) => !selectedImages.includes(imageMetadata.id)
-    );
-    setRecentImages(updatedImages);
-    setSelectedImages([]);
-    setIsEditing(false);
+  const handleDeleteSelectedImages = async () => {
+    try {
+      // Delete from IndexedDB (with localStorage fallback)
+      const success = await deleteImagesFromDB(selectedImages);
+      if (!success) {
+        console.warn('Failed to delete from IndexedDB, updating localStorage');
+        // Update localStorage as fallback
+        const updatedLocalImages = loadImagesFromLocalStorage().filter(
+          (img) => !selectedImages.includes(img.id)
+        );
+        localStorage.setItem('recentImages', JSON.stringify(updatedLocalImages));
+      }
+      
+      // Update state
+      const updatedImages = recentImages.filter(
+        (imageMetadata) => !selectedImages.includes(imageMetadata.id)
+      );
+      setRecentImages(updatedImages);
+      setSelectedImages([]);
+      setIsEditing(false);
+      
+      console.log(`Deleted ${selectedImages.length} images`);
+    } catch (error) {
+      console.error('Failed to delete images:', error);
+      alert('Failed to delete some images. Please try again.');
+    }
   };
 
   // Function to adjust the number of levels
@@ -426,7 +446,7 @@ function App() {
   };
 
   // Function to save the shaded image
-  const saveImage = () => {
+  const saveImage = async () => {
     console.log('Save image clicked');
     console.log('surfaceRef.current:', surfaceRef.current);
     
@@ -436,32 +456,95 @@ function App() {
     }
     
     try {
-      const canvas = surfaceRef.current.getGLCanvas();
-      console.log('Canvas:', canvas);
+      // Wait a bit to ensure the WebGL rendering is complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Try different methods to access the canvas
+      let canvas = null;
+      
+      // Method 1: Direct access to canvas
+      if (surfaceRef.current.canvas) {
+        canvas = surfaceRef.current.canvas;
+        console.log('Using direct canvas access');
+      }
+      // Method 2: Query canvas within the Surface component
+      else if (surfaceRef.current.querySelector) {
+        canvas = surfaceRef.current.querySelector('canvas');
+        console.log('Using querySelector for canvas');
+      }
+      // Method 3: Find the canvas in the DOM
+      else {
+        // Look for the canvas that's a child of the Surface ref
+        const surfaceElement = surfaceRef.current;
+        canvas = surfaceElement.querySelector('canvas') || 
+                 surfaceElement.firstElementChild?.querySelector('canvas') ||
+                 document.querySelector('canvas');
+        console.log('Using DOM query for canvas');
+      }
+      
+      console.log('Canvas found:', canvas);
+      console.log('Canvas dimensions:', canvas?.width, 'x', canvas?.height);
       
       if (!canvas) {
-        alert('Unable to get WebGL canvas.');
+        alert('Unable to find canvas element.');
         return;
       }
       
-      // Convert canvas to blob and save using file-saver
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const filename = `valueator-image-${Date.now()}.png`;
-          saveAs(blob, filename);
-          console.log('Image saved:', filename);
-        } else {
-          // Fallback to data URL method
-          const dataURL = canvas.toDataURL('image/png');
-          const link = document.createElement('a');
-          link.download = `valueator-image-${Date.now()}.png`;
-          link.href = dataURL;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          console.log('Image saved via fallback method');
-        }
-      }, 'image/png');
+      // Check if canvas has content
+      const context = canvas.getContext('2d') || canvas.getContext('webgl') || canvas.getContext('webgl2');
+      if (!context) {
+        alert('Unable to get canvas context.');
+        return;
+      }
+      
+      // For WebGL canvas, we need to read the pixels and create a 2D canvas
+      if (context instanceof WebGLRenderingContext || context instanceof WebGL2RenderingContext) {
+        console.log('WebGL canvas detected, creating 2D canvas copy');
+        
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Create a 2D canvas to copy the WebGL content
+        const canvas2D = document.createElement('canvas');
+        canvas2D.width = width;
+        canvas2D.height = height;
+        const ctx2D = canvas2D.getContext('2d');
+        
+        // Copy the WebGL canvas to 2D canvas
+        ctx2D.drawImage(canvas, 0, 0);
+        
+        // Save from the 2D canvas
+        canvas2D.toBlob((blob) => {
+          if (blob) {
+            const filename = `valueator-image-${Date.now()}.png`;
+            saveAs(blob, filename);
+            console.log('Image saved:', filename);
+          } else {
+            console.error('Failed to create blob from 2D canvas');
+            alert('Failed to create image blob.');
+          }
+        }, 'image/png');
+      } else {
+        // Regular 2D canvas
+        console.log('2D canvas detected');
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const filename = `valueator-image-${Date.now()}.png`;
+            saveAs(blob, filename);
+            console.log('Image saved:', filename);
+          } else {
+            // Fallback to data URL method
+            const dataURL = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `valueator-image-${Date.now()}.png`;
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            console.log('Image saved via fallback method');
+          }
+        }, 'image/png');
+      }
       
     } catch (error) {
       console.error('Error saving image:', error);
@@ -734,7 +817,7 @@ function App() {
                     className="image-grid-item"
                   >
                     <img
-                      src={imageMetadata.dataUrl}
+                      src={imageMetadata.thumbnailUrl || imageMetadata.dataUrl}
                       alt={imageMetadata.name || "Recent"}
                       style={{
                         opacity: isSelected ? 0.7 : 1,
